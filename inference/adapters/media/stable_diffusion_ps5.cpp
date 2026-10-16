@@ -68,6 +68,31 @@ bool is_sdxl_checkpoint(const char *root)
     return true;
 }
 
+// Preset file names of Qwen Image 2.1 (model-tools/pending-presets/qwen-image-2.1-q4-k.json).
+constexpr char kQwenImage21Diffusion[] = "qwen_image_2.1-Q4_K.gguf";
+constexpr char kQwenImage21Encoder[] = "Qwen3VL-8B-Instruct-Q4_K_M.gguf";
+constexpr char kQwenImage21Vae[] = "qwen_image_2.1_vae_bf16.safetensors";
+
+bool root_has_file(const char *root, const char *name)
+{
+    if (!root || !*root)
+        return false;
+    char path[512];
+    if (std::snprintf(path, sizeof(path), "%s/%s", root, name) >= static_cast<int>(sizeof(path)))
+        return false;
+    std::FILE *file = std::fopen(path, "rb");
+    if (!file)
+        return false;
+    std::fclose(file);
+    return true;
+}
+
+bool is_qwen_image_21(const char *root)
+{
+    return root_has_file(root, kQwenImage21Vae) && root_has_file(root, kQwenImage21Diffusion) &&
+           root_has_file(root, kQwenImage21Encoder);
+}
+
 bool is_realistic_vision_v51(const char *root)
 {
     if (!root || !*root)
@@ -241,7 +266,16 @@ bool ensure_context(const char *root)
          std::snprintf(vae_path, sizeof(vae_path), "%s/vae.safetensors", root) >=
              static_cast<int>(sizeof(vae_path))))
         return false;
-    parameters.model_path = flux2_klein ? nullptr
+    const bool qwen_image_21 = is_qwen_image_21(root);
+    if (qwen_image_21 &&
+        (std::snprintf(diffusion_model_path, sizeof(diffusion_model_path), "%s/%s", root,
+                       kQwenImage21Diffusion) >= static_cast<int>(sizeof(diffusion_model_path)) ||
+         std::snprintf(llm_path, sizeof(llm_path), "%s/%s", root, kQwenImage21Encoder) >=
+             static_cast<int>(sizeof(llm_path)) ||
+         std::snprintf(vae_path, sizeof(vae_path), "%s/%s", root, kQwenImage21Vae) >=
+             static_cast<int>(sizeof(vae_path))))
+        return false;
+    parameters.model_path = (flux2_klein || qwen_image_21) ? nullptr
                             : (sdxl_checkpoint || realistic_vision) ? checkpoint_path
                                                                   : root;
     if (flux2_klein)
@@ -251,20 +285,33 @@ bool ensure_context(const char *root)
         parameters.vae_path = vae_path;
         parameters.vae_format = SD_VAE_FORMAT_FLUX2;
     }
+    if (qwen_image_21)
+    {
+        parameters.diffusion_model_path = diffusion_model_path;
+        parameters.llm_path = llm_path;
+        parameters.vae_path = vae_path;
+    }
     if (realistic_vision)
         parameters.vae_path = vae_path;
     parameters.n_threads = 1;
-    parameters.wtype = SD_TYPE_F16;
+    // Qwen Image 2.1 keeps its Q4_K/Q4_K_M weights; the engine picks its own flow prediction.
+    parameters.wtype = qwen_image_21 ? SD_TYPE_COUNT : SD_TYPE_F16;
     parameters.rng_type = CUDA_RNG;
-    parameters.prediction = (is_sd3_model(root) || flux2_klein) ? FLOW_PRED : EPS_PRED;
+    parameters.prediction = qwen_image_21                          ? PREDICTION_COUNT
+                            : (is_sd3_model(root) || flux2_klein) ? FLOW_PRED
+                                                                   : EPS_PRED;
     parameters.enable_mmap = false;
     parameters.eager_load = false;
     parameters.diffusion_conv_direct = false;
     parameters.vae_conv_direct = false;
     parameters.diffusion_flash_attn = false;
-    parameters.backend = sdxl ? "CPU,diffusion=Vulkan0,vae=CPU"
-                              : "CPU,diffusion=Vulkan0,vae=Vulkan0";
-    parameters.params_backend = "Vulkan0";
+    parameters.backend = sdxl            ? "CPU,diffusion=Vulkan0,vae=CPU"
+                         : qwen_image_21 ? "CPU,diffusion=Vulkan0,te=Vulkan0,vae=Vulkan0"
+                                         : "CPU,diffusion=Vulkan0,vae=Vulkan0";
+    // The 8B encoder (~4.7 GiB) and the 7B diffusion model (~3.9 GiB) do not both fit with
+    // working buffers. Disk residency loads the encoder from its file on demand and lets the
+    // engine evict it before the diffusion weights load, so one stage is resident at a time.
+    parameters.params_backend = qwen_image_21 ? "Vulkan0,te=disk" : "Vulkan0";
     context = new_sd_ctx(&parameters);
     prospero_runtime::set_model_resident(context != nullptr);
     if (!context || !sd_ctx_supports_image_generation(context))
@@ -300,9 +347,11 @@ extern "C" int ps5_sd_generate(const char *root, const char *prompt, char *respo
     const bool sd3 = is_sd3_model(root);
     const bool sdxl = model_index_has(root, "StableDiffusionXLPipeline") || is_sdxl_checkpoint(root);
     const bool flux2_klein = is_flux2_klein_model(root);
+    const bool qwen_image_21 = is_qwen_image_21(root);
     progress_callback = progress;
     if (progress_callback)
-        progress_callback(flux2_klein ? "Loading FLUX.2 Klein 4B"
+        progress_callback(qwen_image_21  ? "Loading Qwen Image 2.1"
+                          : flux2_klein ? "Loading FLUX.2 Klein 4B"
                           : sdxl       ? "Loading Stable Diffusion XL"
                           : sd3        ? "Loading Stable Diffusion 3"
                                             : "Loading SD-Turbo");
@@ -319,16 +368,18 @@ extern "C" int ps5_sd_generate(const char *root, const char *prompt, char *respo
     sd_img_gen_params_init(&parameters);
     parameters.prompt = prompt;
     parameters.negative_prompt = "";
-    parameters.width = (sd3 || flux2_klein) ? 768 : 512;
+    parameters.width = (sd3 || flux2_klein || qwen_image_21) ? 768 : 512;
     parameters.height = parameters.width;
     parameters.seed = 42;
     parameters.batch_count = 1;
     parameters.sample_params.sample_steps = flux2_klein ? 4
+                                            : qwen_image_21 ? 20
                                             : sdxl ? 10
                                             : sd3 ? 28
                                             : is_realistic_vision_v51(root) ? 20
                                                   : 1;
-    parameters.sample_params.sample_method = (sdxl || sd3 || flux2_klein || is_realistic_vision_v51(root))
+    parameters.sample_params.sample_method = (sdxl || sd3 || flux2_klein || qwen_image_21 ||
+                                              is_realistic_vision_v51(root))
                                                  ? EULER_SAMPLE_METHOD
                                                  : EULER_A_SAMPLE_METHOD;
     if (flux2_klein)
@@ -336,6 +387,7 @@ extern "C" int ps5_sd_generate(const char *root, const char *prompt, char *respo
     if (flux2_klein)
         parameters.sample_params.guidance.distilled_guidance = 1.0f;
     parameters.sample_params.guidance.txt_cfg = is_realistic_vision_v51(root) ? 7.0f
+                                               : qwen_image_21 ? 6.0f
                                                : sdxl ? 5.0f : sd3 ? 4.5f : 1.0f;
 
     sd_image_t *images = nullptr;
@@ -346,6 +398,11 @@ extern "C" int ps5_sd_generate(const char *root, const char *prompt, char *respo
                          write_tga(display_output, images[0]) &&
                          write_png(png_output, images[0]);
     free_sd_images(images, image_count);
+    // The diffusion weights stay resident in a kept context and cannot be evicted, so the next
+    // request's encoder would have to fit beside them. A fresh context per image keeps the
+    // encoder-then-diffusion order; reloading costs seconds against minutes of sampling.
+    if (qwen_image_21)
+        release_context();
     const std::uint64_t elapsed = sceKernelGetProcessTime() - start;
     if (elapsed_microseconds)
         *elapsed_microseconds = elapsed;

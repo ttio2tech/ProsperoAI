@@ -23,6 +23,26 @@ SHA-256 hashes during download.
 The table is the complete list of curated presets in this build. Curated media presets include
 their required model files and use the image, audio, or speech runtime already in the app.
 
+## Pending: Qwen Image 2.1
+
+The image adapter recognizes a Qwen Image 2.1 folder that holds `qwen_image_2.1-Q4_K.gguf`
+(7B diffusion transformer), `Qwen3VL-8B-Instruct-Q4_K_M.gguf` (text encoder) and
+`qwen_image_2.1_vae_bf16.safetensors`. It is not yet a curated preset: its revisions, sizes and
+SHA-256 values are not pinned and it has not run on a PS5.
+
+- To test before pinning, copy the three files into one folder such as
+  `/data/prosperoai/models/qwen-image-2.1-q4-k/`. The app lists it as
+  "qwen-image-2.1-q4-k (Qwen Image 2.1)".
+- Pin it from a host with Hugging Face access, then review the diff:
+  `python3 tools/pin-pending-preset.py model-tools/pending-presets/qwen-image-2.1-q4-k.json`
+- The encoder (about 4.7 GiB) and the diffusion weights (about 3.9 GiB) do not fit together
+  with working buffers in the 11.4 GiB Vulkan heap. The adapter keeps the encoder on
+  disk residency, so stable-diffusion.cpp loads it for the prompt and evicts it before the
+  diffusion weights load, and it releases the context after every image.
+- Settings: 768 × 768, 20 Euler steps, CFG 6.0, engine-selected flow schedule. The pinned
+  stable-diffusion.cpp has no Turbo schedule, so expect minutes per image.
+- Check the model license before distributing a release that offers this preset.
+
 ## Other GGUF text models
 
 ProsperoAI can also download and discover standalone `.gguf` text models. The pinned

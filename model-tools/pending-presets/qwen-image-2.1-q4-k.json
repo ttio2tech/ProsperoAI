@@ -1,0 +1,23 @@
+{
+  "id": "qwen-image-2.1-q4-k",
+  "name": "Qwen Image 2.1 Q4_K",
+  "kind": 1,
+  "repository": "leejet/Qwen-Image-2.1-GGUF",
+  "files": [
+    {
+      "source": "qwen_image_2.1-Q4_K.gguf",
+      "path": "qwen_image_2.1-Q4_K.gguf",
+      "repository": "leejet/Qwen-Image-2.1-GGUF"
+    },
+    {
+      "source": "Qwen3VL-8B-Instruct-Q4_K_M.gguf",
+      "path": "Qwen3VL-8B-Instruct-Q4_K_M.gguf",
+      "repository": "Qwen/Qwen3-VL-8B-Instruct-GGUF"
+    },
+    {
+      "source": "vae/qwen_image_2.1_vae_bf16.safetensors",
+      "path": "qwen_image_2.1_vae_bf16.safetensors",
+      "repository": "Comfy-Org/Qwen-Image-2.1"
+    }
+  ]
+}

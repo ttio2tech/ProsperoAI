@@ -80,8 +80,23 @@ bool exists(const std::string &path)
     };
     return stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0;
 }
+// A Qwen Image 2.1 folder copied by hand, with the file names the image adapter loads
+// (inference/adapters/media/stable_diffusion_ps5.cpp).
+bool qwen_image_21_directory(const std::string &path)
+{
+    for (const char *name : {"qwen_image_2.1-Q4_K.gguf", "Qwen3VL-8B-Instruct-Q4_K_M.gguf",
+                             "qwen_image_2.1_vae_bf16.safetensors"})
+        if (!exists(path + "/" + name))
+            return false;
+    return true;
+}
 bool supported_diffusers_directory(const std::string &path, std::string &family)
 {
+    if (qwen_image_21_directory(path))
+    {
+        family = "Qwen Image 2.1";
+        return true;
+    }
     const std::string index = path + "/model_index.json";
     std::FILE *file = std::fopen(index.c_str(), "rb");
     if (!file)
