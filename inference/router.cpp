@@ -82,19 +82,20 @@ bool exists(const std::string &path)
 }
 // A Qwen Image 2.1 folder copied by hand, with the file names the image adapter loads
 // (inference/adapters/media/stable_diffusion_ps5.cpp).
-bool qwen_image_21_directory(const std::string &path)
+bool qwen_image_21_directory(const std::string &path, bool &turbo)
 {
-    for (const char *name : {"qwen_image_2.1-Q4_K.gguf", "Qwen3VL-8B-Instruct-Q4_K_M.gguf",
-                             "qwen_image_2.1_vae_bf16.safetensors"})
+    for (const char *name : {"Qwen3VL-8B-Instruct-Q4_K_M.gguf", "qwen_image_2.1_vae_bf16.safetensors"})
         if (!exists(path + "/" + name))
             return false;
-    return true;
+    turbo = exists(path + "/qwen_image_2.1_turbo-Q4_K.gguf");
+    return turbo || exists(path + "/qwen_image_2.1-Q4_K.gguf");
 }
 bool supported_diffusers_directory(const std::string &path, std::string &family)
 {
-    if (qwen_image_21_directory(path))
+    bool turbo = false;
+    if (qwen_image_21_directory(path, turbo))
     {
-        family = "Qwen Image 2.1";
+        family = turbo ? "Qwen Image 2.1 Turbo" : "Qwen Image 2.1";
         return true;
     }
     const std::string index = path + "/model_index.json";

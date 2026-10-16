@@ -32,15 +32,20 @@ SHA-256 values are not pinned and it has not run on a PS5.
 
 - To test before pinning, copy the three files into one folder such as
   `/data/prosperoai/models/qwen-image-2.1-q4-k/`. The app lists it as
-  "qwen-image-2.1-q4-k (Qwen Image 2.1)".
+  "qwen-image-2.1-q4-k (Qwen Image 2.1)", or "… (Qwen Image 2.1 Turbo)" with the Turbo file.
 - Pin it from a host with Hugging Face access, then review the diff:
   `python3 tools/pin-pending-preset.py model-tools/pending-presets/qwen-image-2.1-q4-k.json`
 - The encoder (about 4.7 GiB) and the diffusion weights (about 3.9 GiB) do not fit together
   with working buffers in the 11.4 GiB Vulkan heap. The adapter keeps the encoder on
   disk residency, so stable-diffusion.cpp loads it for the prompt and evicts it before the
   diffusion weights load, and it releases the context after every image.
-- Settings: 768 × 768, 20 Euler steps, CFG 6.0, engine-selected flow schedule. The pinned
-  stable-diffusion.cpp has no Turbo schedule, so expect minutes per image.
+- Settings: 768 × 768, 20 Euler steps, CFG 6.0, engine-selected flow schedule.
+- Turbo: put the [Qwen-Image-2.1-Turbo](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo)
+  diffusion weights, quantized to Q4_K, in the folder as `qwen_image_2.1_turbo-Q4_K.gguf`
+  (it takes precedence over the base file). The adapter then uses upstream sd-cli's
+  `--sigmas qwen-image-2.1-turbo` schedule: 8 Euler steps at CFG 1.0, which also skips the
+  negative-prompt pass. Without a published GGUF, convert the safetensors on a PC with
+  `sd-cli -M convert -m <turbo>.safetensors -o qwen_image_2.1_turbo-Q4_K.gguf --type q4_K`.
 - Check the model license before distributing a release that offers this preset.
 
 ## Other GGUF text models

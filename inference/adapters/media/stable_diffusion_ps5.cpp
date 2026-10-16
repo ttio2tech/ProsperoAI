@@ -70,6 +70,8 @@ bool is_sdxl_checkpoint(const char *root)
 
 // Preset file names of Qwen Image 2.1 (model-tools/pending-presets/qwen-image-2.1-q4-k.json).
 constexpr char kQwenImage21Diffusion[] = "qwen_image_2.1-Q4_K.gguf";
+// Qwen/Qwen-Image-2.1-Turbo diffusion weights, quantized to Q4_K under this name.
+constexpr char kQwenImage21TurboDiffusion[] = "qwen_image_2.1_turbo-Q4_K.gguf";
 constexpr char kQwenImage21Encoder[] = "Qwen3VL-8B-Instruct-Q4_K_M.gguf";
 constexpr char kQwenImage21Vae[] = "qwen_image_2.1_vae_bf16.safetensors";
 
@@ -87,11 +89,24 @@ bool root_has_file(const char *root, const char *name)
     return true;
 }
 
+// Turbo weights take precedence when a folder holds both diffusion files.
+bool is_qwen_image_21_turbo(const char *root)
+{
+    return root_has_file(root, kQwenImage21Vae) && root_has_file(root, kQwenImage21Encoder) &&
+           root_has_file(root, kQwenImage21TurboDiffusion);
+}
+
 bool is_qwen_image_21(const char *root)
 {
-    return root_has_file(root, kQwenImage21Vae) && root_has_file(root, kQwenImage21Diffusion) &&
-           root_has_file(root, kQwenImage21Encoder);
+    return is_qwen_image_21_turbo(root) ||
+           (root_has_file(root, kQwenImage21Vae) && root_has_file(root, kQwenImage21Encoder) &&
+            root_has_file(root, kQwenImage21Diffusion));
 }
+
+// The fixed schedule upstream's sd-cli selects with --sigmas qwen-image-2.1-turbo; the sigma
+// count sets the step count (8).
+float qwen_image_21_turbo_sigmas[] = {1.0f,     0.978453f, 0.95418f,  0.926626f, 0.89508f,
+                                      0.845148f, 0.704534f, 0.414568f, 0.0f};
 
 bool is_realistic_vision_v51(const char *root)
 {
@@ -269,7 +284,9 @@ bool ensure_context(const char *root)
     const bool qwen_image_21 = is_qwen_image_21(root);
     if (qwen_image_21 &&
         (std::snprintf(diffusion_model_path, sizeof(diffusion_model_path), "%s/%s", root,
-                       kQwenImage21Diffusion) >= static_cast<int>(sizeof(diffusion_model_path)) ||
+                       is_qwen_image_21_turbo(root) ? kQwenImage21TurboDiffusion
+                                                    : kQwenImage21Diffusion) >=
+             static_cast<int>(sizeof(diffusion_model_path)) ||
          std::snprintf(llm_path, sizeof(llm_path), "%s/%s", root, kQwenImage21Encoder) >=
              static_cast<int>(sizeof(llm_path)) ||
          std::snprintf(vae_path, sizeof(vae_path), "%s/%s", root, kQwenImage21Vae) >=
@@ -348,9 +365,11 @@ extern "C" int ps5_sd_generate(const char *root, const char *prompt, char *respo
     const bool sdxl = model_index_has(root, "StableDiffusionXLPipeline") || is_sdxl_checkpoint(root);
     const bool flux2_klein = is_flux2_klein_model(root);
     const bool qwen_image_21 = is_qwen_image_21(root);
+    const bool qwen_image_21_turbo = qwen_image_21 && is_qwen_image_21_turbo(root);
     progress_callback = progress;
     if (progress_callback)
-        progress_callback(qwen_image_21  ? "Loading Qwen Image 2.1"
+        progress_callback(qwen_image_21_turbo ? "Loading Qwen Image 2.1 Turbo"
+                          : qwen_image_21  ? "Loading Qwen Image 2.1"
                           : flux2_klein ? "Loading FLUX.2 Klein 4B"
                           : sdxl       ? "Loading Stable Diffusion XL"
                           : sd3        ? "Loading Stable Diffusion 3"
@@ -373,6 +392,7 @@ extern "C" int ps5_sd_generate(const char *root, const char *prompt, char *respo
     parameters.seed = 42;
     parameters.batch_count = 1;
     parameters.sample_params.sample_steps = flux2_klein ? 4
+                                            : qwen_image_21_turbo ? 8
                                             : qwen_image_21 ? 20
                                             : sdxl ? 10
                                             : sd3 ? 28
@@ -384,9 +404,16 @@ extern "C" int ps5_sd_generate(const char *root, const char *prompt, char *respo
                                                  : EULER_A_SAMPLE_METHOD;
     if (flux2_klein)
         parameters.sample_params.scheduler = FLUX2_SCHEDULER;
+    if (qwen_image_21_turbo)
+    {
+        parameters.sample_params.custom_sigmas = qwen_image_21_turbo_sigmas;
+        parameters.sample_params.custom_sigmas_count =
+            static_cast<int>(sizeof(qwen_image_21_turbo_sigmas) / sizeof(qwen_image_21_turbo_sigmas[0]));
+    }
     if (flux2_klein)
         parameters.sample_params.guidance.distilled_guidance = 1.0f;
     parameters.sample_params.guidance.txt_cfg = is_realistic_vision_v51(root) ? 7.0f
+                                               : qwen_image_21_turbo ? 1.0f
                                                : qwen_image_21 ? 6.0f
                                                : sdxl ? 5.0f : sd3 ? 4.5f : 1.0f;
 
