@@ -16,6 +16,7 @@ options=(-DPROS_LLAMA_SOURCE="$source_tree" -DPROS_GGML_SOURCE="$ggml_source" -D
 python3 "$root/tools/prepare-bonsai-ggml.py" --ggml-source "$ggml_source" --prism-source "$prism_source"
 python3 "$root/tools/prepare-bonsai-llama.py" --llama-source "$source_tree" --prism-source "$prism_source"
 python3 "$root/tools/prepare-ggml-graph-setter.py" --source "$ggml_source"
+python3 "$root/tools/prepare-sd-flux3.py" --source "$root/.deps/stable-diffusion-vulkan"
 python3 "$root/tools/prepare-audio-cpp-sa3.py" --source "$root/build/audio-cpp-upstream" --ggml-source "$ggml_source"
 if [[ $mode == ps5 ]]; then
     python3 "$root/tools/prepare-llama-ps5-io.py" --source "$source_tree" --ggml-source "$ggml_source"

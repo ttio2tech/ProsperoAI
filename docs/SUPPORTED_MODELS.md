@@ -48,6 +48,34 @@ SHA-256 values are not pinned and it has not run on a PS5.
   `sd-cli -M convert -m <turbo>.safetensors -o qwen_image_2.1_turbo-Q4_K.gguf --type q4_K`.
 - Check the model license before distributing a release that offers this preset.
 
+## Pending: FLUX.3 Image Klein
+
+The pinned stable-diffusion.cpp predates FLUX.3. `tools/prepare-sd-flux3.py` applies
+`tools/patches/stable-diffusion-flux3-klein.patch`, the source part of upstream commit
+`8cd731e` ("add FLUX.3 Image Klein and Klein Base support"), during the runtime build. It
+applies without conflicts, and upstream's ggml submodule is unchanged between the two
+commits. The other upstream commits since the pin are not included.
+
+FLUX.3 Image Klein is a ~4.7B diffusion transformer with the Qwen3-VL 4B encoder and the
+FLUX.2 VAE. It has not run on a PS5. Black Forest Labs publishes it as BF16 safetensors only,
+so convert the diffusion model on a PC first (Q8_0 is about 5 GB, Q4_K about 2.8 GB):
+
+    sd-cli -M convert -m model.safetensors -o flux-3-image-klein.gguf --type q8_0
+
+Copy these into one folder, such as `/data/prosperoai/models/flux-3-image-klein/`:
+
+| File in the folder | Source |
+| --- | --- |
+| `flux-3-image-klein.gguf` (distilled) or `flux-3-image-klein-base.gguf` | root `model.safetensors` of `black-forest-labs/flux-3-image-klein` or `-klein-base`, converted |
+| `Qwen3VL-4B-Instruct-Q4_K_M.gguf` | `Qwen/Qwen3-VL-4B-Instruct-GGUF` (rename if its file name differs) |
+| `ae.safetensors` | the FLUX.3 repository's `ae.safetensors`, or FLUX.2-dev's |
+
+- Klein: 768 × 768, 16 Euler steps, CFG 1.0. Klein Base: 20 steps, CFG 3.5. The engine selects
+  the FLUX.3 flow prediction, its 6.93 schedule shift and the FLUX.2 VAE format.
+- As for Qwen Image 2.1, the encoder uses disk residency so it is not kept beside the
+  diffusion weights.
+- Check the FLUX.3 license before distributing a build that offers it.
+
 ## Other GGUF text models
 
 ProsperoAI can also download and discover standalone `.gguf` text models. The pinned

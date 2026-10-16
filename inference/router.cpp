@@ -90,12 +90,27 @@ bool qwen_image_21_directory(const std::string &path, bool &turbo)
     turbo = exists(path + "/qwen_image_2.1_turbo-Q4_K.gguf");
     return turbo || exists(path + "/qwen_image_2.1-Q4_K.gguf");
 }
+// FLUX.3 Image Klein or Klein Base converted to GGUF, with the names the image adapter loads.
+bool flux3_klein_directory(const std::string &path, bool &base)
+{
+    for (const char *name : {"Qwen3VL-4B-Instruct-Q4_K_M.gguf", "ae.safetensors"})
+        if (!exists(path + "/" + name))
+            return false;
+    base = !exists(path + "/flux-3-image-klein.gguf");
+    return !base || exists(path + "/flux-3-image-klein-base.gguf");
+}
 bool supported_diffusers_directory(const std::string &path, std::string &family)
 {
     bool turbo = false;
     if (qwen_image_21_directory(path, turbo))
     {
         family = turbo ? "Qwen Image 2.1 Turbo" : "Qwen Image 2.1";
+        return true;
+    }
+    bool base = false;
+    if (flux3_klein_directory(path, base))
+    {
+        family = base ? "FLUX.3 Image Klein Base" : "FLUX.3 Image Klein";
         return true;
     }
     const std::string index = path + "/model_index.json";
