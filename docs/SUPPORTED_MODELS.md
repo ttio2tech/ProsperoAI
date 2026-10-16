@@ -72,8 +72,11 @@ Copy these into one folder, such as `/data/prosperoai/models/flux-3-image-klein/
 
 - Klein: 768 × 768, 16 Euler steps, CFG 1.0. Klein Base: 20 steps, CFG 3.5. The engine selects
   the FLUX.3 flow prediction, its 6.93 schedule shift and the FLUX.2 VAE format.
-- As for Qwen Image 2.1, the encoder uses disk residency so it is not kept beside the
-  diffusion weights.
+- Unlike Qwen Image 2.1, all three parts stay loaded across images (Q8_0 transformer, 4B
+  encoder and VAE fit together), so a repeated request re-encodes only a new prompt. If an
+  image fails with everything resident, the adapter retries once with the encoder loaded from
+  disk per prompt and keeps that mode for the rest of the run (klog
+  `flux3_retry_encoder_on_disk=1`).
 - Check the FLUX.3 license before distributing a build that offers it.
 
 ## Other GGUF text models

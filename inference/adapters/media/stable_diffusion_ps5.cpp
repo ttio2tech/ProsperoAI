@@ -26,6 +26,9 @@ namespace
 
 sd_ctx_t *context;
 char context_root[192];
+// Set after a FLUX.3 image fails with all weights resident; later contexts in this run then
+// load the encoder from disk per prompt, as Qwen Image 2.1 always does.
+bool flux3_encoder_on_disk;
 void (*progress_callback)(const char *);
 bool backend_registered;
 
@@ -364,8 +367,10 @@ bool ensure_context(const char *root)
     // The 8B encoder (~4.7 GiB) and the 7B diffusion model (~3.9 GiB) do not both fit with
     // working buffers. Disk residency loads the encoder from its file on demand and lets the
     // engine evict it before the diffusion weights load, so one stage is resident at a time.
-    // FLUX.3's 4B encoder gets the same treatment so a Q8_0 transformer keeps its headroom.
-    parameters.params_backend = llm_dit ? "Vulkan0,te=disk" : "Vulkan0";
+    // FLUX.3 (~5 GB at Q8_0) and its 4B encoder (~2.5 GB) fit together, so all its weights stay
+    // loaded across images; a kept context then re-encodes only a new prompt.
+    parameters.params_backend = (qwen_image_21 || (flux3 && flux3_encoder_on_disk)) ? "Vulkan0,te=disk"
+                                                                                      : "Vulkan0";
     context = new_sd_ctx(&parameters);
     prospero_runtime::set_model_resident(context != nullptr);
     if (!context || !sd_ctx_supports_image_generation(context))
@@ -464,7 +469,19 @@ extern "C" int ps5_sd_generate(const char *root, const char *prompt, char *respo
 
     sd_image_t *images = nullptr;
     int image_count = 0;
-    const bool generated = generate_image(context, &parameters, &images, &image_count);
+    bool generated = generate_image(context, &parameters, &images, &image_count);
+    if (!generated && flux3 && !flux3_encoder_on_disk)
+    {
+        // The pinned engine cannot demote resident weights when memory runs out; retry once
+        // with the encoder loaded per prompt instead of beside the diffusion weights.
+        log_line("[prosperoai] flux3_retry_encoder_on_disk=1\n");
+        free_sd_images(images, image_count);
+        images = nullptr;
+        image_count = 0;
+        flux3_encoder_on_disk = true;
+        release_context();
+        generated = ensure_context(root) && generate_image(context, &parameters, &images, &image_count);
+    }
     const bool written = generated && image_count == 1 && images &&
                          write_ppm(oracle_output, images[0]) &&
                          write_tga(display_output, images[0]) &&
