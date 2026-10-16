@@ -30,6 +30,9 @@ The image adapter recognizes a Qwen Image 2.1 folder that holds `qwen_image_2.1-
 `qwen_image_2.1_vae_bf16.safetensors`. It is not yet a curated preset: its revisions, sizes and
 SHA-256 values are not pinned and it has not run on a PS5.
 
+- To test before pinning, copy the three files into one folder such as
+  `/data/prosperoai/models/qwen-image-2.1-q4-k/`. The app lists it as
+  "qwen-image-2.1-q4-k (Qwen Image 2.1)".
 - Pin it from a host with Hugging Face access, then review the diff:
   `python3 tools/pin-pending-preset.py model-tools/pending-presets/qwen-image-2.1-q4-k.json`
 - The encoder (about 4.7 GiB) and the diffusion weights (about 3.9 GiB) do not fit together
