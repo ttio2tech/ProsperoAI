@@ -15,7 +15,7 @@
       "repository": "Qwen/Qwen3-VL-8B-Instruct-GGUF"
     },
     {
-      "source": "qwen_image_2.1_vae_bf16.safetensors",
+      "source": "vae/qwen_image_2.1_vae_bf16.safetensors",
       "path": "qwen_image_2.1_vae_bf16.safetensors",
       "repository": "Comfy-Org/Qwen-Image-2.1"
     }
