@@ -3,6 +3,7 @@
 static_assert(GGML_MAX_NAME == 160, "SD and llama must share the tensor ABI");
 #include "stable-diffusion.h"
 #include "../../../include/generated_output_path.hpp"
+#include "../../../include/image_model_files.hpp"
 #include "../../../third_party/miniz/miniz_tdef.h"
 #include "../../../third_party/miniz/miniz.h"
 
@@ -71,67 +72,20 @@ bool is_sdxl_checkpoint(const char *root)
     return true;
 }
 
-// Preset file names of Qwen Image 2.1 (model-tools/pending-presets/qwen-image-2.1-q4-k.json).
-constexpr char kQwenImage21Diffusion[] = "qwen_image_2.1-Q4_K.gguf";
-// Qwen/Qwen-Image-2.1-Turbo diffusion weights, quantized to Q4_K under this name.
-constexpr char kQwenImage21TurboDiffusion[] = "qwen_image_2.1_turbo-Q4_K.gguf";
-constexpr char kQwenImage21Encoder[] = "Qwen3VL-8B-Instruct-Q4_K_M.gguf";
-constexpr char kQwenImage21Vae[] = "qwen_image_2.1_vae_bf16.safetensors";
+// Hand-copied Qwen Image 2.1 and FLUX.3 Image Klein folders: the router lists them by the same
+// rules (include/image_model_files.hpp). The pinned stable-diffusion.cpp gets FLUX.3 from
+// tools/patches/stable-diffusion-flux3-klein.patch.
+using prospero::image_models::Family;
 
-bool root_has_file(const char *root, const char *name)
+prospero::image_models::Files image_model_files(const char *root)
 {
-    if (!root || !*root)
-        return false;
-    char path[512];
-    if (std::snprintf(path, sizeof(path), "%s/%s", root, name) >= static_cast<int>(sizeof(path)))
-        return false;
-    std::FILE *file = std::fopen(path, "rb");
-    if (!file)
-        return false;
-    std::fclose(file);
-    return true;
-}
-
-// Turbo weights take precedence when a folder holds both diffusion files.
-bool is_qwen_image_21_turbo(const char *root)
-{
-    return root_has_file(root, kQwenImage21Vae) && root_has_file(root, kQwenImage21Encoder) &&
-           root_has_file(root, kQwenImage21TurboDiffusion);
-}
-
-bool is_qwen_image_21(const char *root)
-{
-    return is_qwen_image_21_turbo(root) ||
-           (root_has_file(root, kQwenImage21Vae) && root_has_file(root, kQwenImage21Encoder) &&
-            root_has_file(root, kQwenImage21Diffusion));
+    return root && *root ? prospero::image_models::detect(root) : prospero::image_models::Files{};
 }
 
 // The fixed schedule upstream's sd-cli selects with --sigmas qwen-image-2.1-turbo; the sigma
 // count sets the step count (8).
 float qwen_image_21_turbo_sigmas[] = {1.0f,     0.978453f, 0.95418f,  0.926626f, 0.89508f,
                                       0.845148f, 0.704534f, 0.414568f, 0.0f};
-
-// FLUX.3 Image Klein (distilled) or Klein Base, converted to GGUF under these names, with the
-// Qwen3-VL 4B encoder and the FLUX.2 VAE (ae.safetensors from FLUX.3 or FLUX.2-dev). The
-// pinned stable-diffusion.cpp gets FLUX.3 from tools/patches/stable-diffusion-flux3-klein.patch.
-constexpr char kFlux3KleinDiffusion[] = "flux-3-image-klein.gguf";
-constexpr char kFlux3KleinBaseDiffusion[] = "flux-3-image-klein-base.gguf";
-constexpr char kFlux3Encoder[] = "Qwen3VL-4B-Instruct-Q4_K_M.gguf";
-constexpr char kFlux3Vae[] = "ae.safetensors";
-
-// The distilled weights take precedence when a folder holds both.
-bool is_flux3_klein_distilled(const char *root)
-{
-    return root_has_file(root, kFlux3Vae) && root_has_file(root, kFlux3Encoder) &&
-           root_has_file(root, kFlux3KleinDiffusion);
-}
-
-bool is_flux3_klein(const char *root)
-{
-    return is_flux3_klein_distilled(root) ||
-           (root_has_file(root, kFlux3Vae) && root_has_file(root, kFlux3Encoder) &&
-            root_has_file(root, kFlux3KleinBaseDiffusion));
-}
 
 bool is_realistic_vision_v51(const char *root)
 {
@@ -306,28 +260,20 @@ bool ensure_context(const char *root)
          std::snprintf(vae_path, sizeof(vae_path), "%s/vae.safetensors", root) >=
              static_cast<int>(sizeof(vae_path))))
         return false;
-    const bool qwen_image_21 = is_qwen_image_21(root);
-    if (qwen_image_21 &&
+    const prospero::image_models::Files files = image_model_files(root);
+    const bool qwen_image_21 = files.family == Family::QwenImage21;
+    const bool flux3 = files.family == Family::Flux3Klein;
+    if ((qwen_image_21 || flux3) &&
         (std::snprintf(diffusion_model_path, sizeof(diffusion_model_path), "%s/%s", root,
-                       is_qwen_image_21_turbo(root) ? kQwenImage21TurboDiffusion
-                                                    : kQwenImage21Diffusion) >=
-             static_cast<int>(sizeof(diffusion_model_path)) ||
-         std::snprintf(llm_path, sizeof(llm_path), "%s/%s", root, kQwenImage21Encoder) >=
+                       files.diffusion.c_str()) >= static_cast<int>(sizeof(diffusion_model_path)) ||
+         std::snprintf(llm_path, sizeof(llm_path), "%s/%s", root, files.encoder.c_str()) >=
              static_cast<int>(sizeof(llm_path)) ||
-         std::snprintf(vae_path, sizeof(vae_path), "%s/%s", root, kQwenImage21Vae) >=
+         std::snprintf(vae_path, sizeof(vae_path), "%s/%s", root, files.vae.c_str()) >=
              static_cast<int>(sizeof(vae_path))))
         return false;
-    const bool flux3 = !qwen_image_21 && is_flux3_klein(root);
-    if (flux3 &&
-        (std::snprintf(diffusion_model_path, sizeof(diffusion_model_path), "%s/%s", root,
-                       is_flux3_klein_distilled(root) ? kFlux3KleinDiffusion
-                                                      : kFlux3KleinBaseDiffusion) >=
-             static_cast<int>(sizeof(diffusion_model_path)) ||
-         std::snprintf(llm_path, sizeof(llm_path), "%s/%s", root, kFlux3Encoder) >=
-             static_cast<int>(sizeof(llm_path)) ||
-         std::snprintf(vae_path, sizeof(vae_path), "%s/%s", root, kFlux3Vae) >=
-             static_cast<int>(sizeof(vae_path))))
-        return false;
+    if (qwen_image_21 || flux3)
+        log_line("[prosperoai] %s: diffusion=%s encoder=%s vae=%s\n", prospero::image_models::family_name(files),
+                 files.diffusion.c_str(), files.encoder.c_str(), files.vae.c_str());
     // Diffusion transformers conditioned by a Qwen3-VL encoder, loaded as three files.
     const bool llm_dit = qwen_image_21 || flux3;
     parameters.model_path = (flux2_klein || llm_dit) ? nullptr
@@ -406,10 +352,11 @@ extern "C" int ps5_sd_generate(const char *root, const char *prompt, char *respo
     const bool sd3 = is_sd3_model(root);
     const bool sdxl = model_index_has(root, "StableDiffusionXLPipeline") || is_sdxl_checkpoint(root);
     const bool flux2_klein = is_flux2_klein_model(root);
-    const bool qwen_image_21 = is_qwen_image_21(root);
-    const bool qwen_image_21_turbo = qwen_image_21 && is_qwen_image_21_turbo(root);
-    const bool flux3 = !qwen_image_21 && is_flux3_klein(root);
-    const bool flux3_base = flux3 && !is_flux3_klein_distilled(root);
+    const prospero::image_models::Files files = image_model_files(root);
+    const bool qwen_image_21 = files.family == Family::QwenImage21;
+    const bool qwen_image_21_turbo = qwen_image_21 && files.variant;
+    const bool flux3 = files.family == Family::Flux3Klein;
+    const bool flux3_base = flux3 && files.variant;
     progress_callback = progress;
     if (progress_callback)
         progress_callback(flux3_base            ? "Loading FLUX.3 Image Klein Base"

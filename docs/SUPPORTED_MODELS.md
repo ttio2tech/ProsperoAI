@@ -23,6 +23,22 @@ SHA-256 hashes during download.
 The table is the complete list of curated presets in this build. Curated media presets include
 their required model files and use the image, audio, or speech runtime already in the app.
 
+## Hand-copied image model folders
+
+Qwen Image 2.1 and FLUX.3 Image Klein are installed by copying their three files into one
+folder under `/data/prosperoai/models/`. The app recognizes the folder by its VAE file and
+accepts quantization suffixes in the other names (rules in `include/image_model_files.hpp`):
+
+| Model | VAE (exact name) | Diffusion GGUF | Encoder GGUF |
+| --- | --- | --- | --- |
+| Qwen Image 2.1 | `qwen_image_2.1_vae_bf16.safetensors` | `qwen_image_2.1*.gguf` (`qwen_image_2.1_turbo*` / `qwen-image-2.1-turbo*` for Turbo) | `Qwen3VL-8B-Instruct*.gguf` |
+| FLUX.3 Image Klein | `ae.safetensors` or `flux2-vae.safetensors` | `flux-3-image-klein*.gguf` (`flux-3-image-klein-base*` for Base) | `Qwen3VL-4B-Instruct*.gguf` |
+
+Keep one diffusion GGUF per folder; with several, the first by name is used (Turbo and the
+distilled Klein take precedence over the base weights). GGUFs in a folder that holds one of
+these VAEs are never listed as text models. If such a folder is incomplete, klog says what is
+missing (`image model folder … is incomplete`), and the debug trace names the files loaded.
+
 ## Pending: Qwen Image 2.1
 
 The image adapter recognizes a Qwen Image 2.1 folder that holds `qwen_image_2.1-Q4_K.gguf`

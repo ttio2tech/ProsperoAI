@@ -11,6 +11,7 @@
 #endif
 #include "model_paths.hpp"
 #include "model_presets.hpp"
+#include "image_model_files.hpp"
 #include "kv_budget.hpp"
 #include "direct_memory.hpp"
 #include "prefix_reuse.hpp"
@@ -125,7 +126,7 @@ void scan(const std::string &root, int depth) {
             // A media or speech bundle is not a folder of text models. The speech bundle
             // carries its own GGUF model and voice pack, and letting llama.cpp see them
             // put two bogus text models in the catalog.
-            if (!media_bundle(entry->d_name)) scan(path, 1);
+            if (!media_bundle(entry->d_name) && !prospero::image_models::is_image_folder(path)) scan(path, 1);
         }
         else if (S_ISREG(st.st_mode) && path.size() > 5 && path.substr(path.size() - 5) == ".gguf") {
             std::string id = path.substr(std::strlen(prospero::model_root()) + 1);

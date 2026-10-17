@@ -20,6 +20,7 @@
 #include <cctype>
 #include <sys/stat.h>
 #include "direct_memory.hpp"
+#include "image_model_files.hpp"
 extern "C"
 {
     int sceKernelDebugOutText(int, const char *);
@@ -80,38 +81,20 @@ bool exists(const std::string &path)
     };
     return stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0;
 }
-// A Qwen Image 2.1 folder copied by hand, with the file names the image adapter loads
-// (inference/adapters/media/stable_diffusion_ps5.cpp).
-bool qwen_image_21_directory(const std::string &path, bool &turbo)
-{
-    for (const char *name : {"Qwen3VL-8B-Instruct-Q4_K_M.gguf", "qwen_image_2.1_vae_bf16.safetensors"})
-        if (!exists(path + "/" + name))
-            return false;
-    turbo = exists(path + "/qwen_image_2.1_turbo-Q4_K.gguf");
-    return turbo || exists(path + "/qwen_image_2.1-Q4_K.gguf");
-}
-// FLUX.3 Image Klein or Klein Base converted to GGUF, with the names the image adapter loads.
-bool flux3_klein_directory(const std::string &path, bool &base)
-{
-    for (const char *name : {"Qwen3VL-4B-Instruct-Q4_K_M.gguf", "ae.safetensors"})
-        if (!exists(path + "/" + name))
-            return false;
-    base = !exists(path + "/flux-3-image-klein.gguf");
-    return !base || exists(path + "/flux-3-image-klein-base.gguf");
-}
 bool supported_diffusers_directory(const std::string &path, std::string &family)
 {
-    bool turbo = false;
-    if (qwen_image_21_directory(path, turbo))
+    // Hand-copied Qwen Image 2.1 / FLUX.3 Klein folders (include/image_model_files.hpp).
+    const prospero::image_models::Files files = prospero::image_models::detect(path);
+    if (files.family != prospero::image_models::Family::None)
     {
-        family = turbo ? "Qwen Image 2.1 Turbo" : "Qwen Image 2.1";
+        family = prospero::image_models::family_name(files);
         return true;
     }
-    bool base = false;
-    if (flux3_klein_directory(path, base))
+    if (!files.missing.empty())
     {
-        family = base ? "FLUX.3 Image Klein Base" : "FLUX.3 Image Klein";
-        return true;
+        const std::string line = "[prosperoai] image model folder " + path + " is incomplete: missing " +
+                                 files.missing + "\n";
+        sceKernelDebugOutText(0, line.c_str());
     }
     const std::string index = path + "/model_index.json";
     std::FILE *file = std::fopen(index.c_str(), "rb");
